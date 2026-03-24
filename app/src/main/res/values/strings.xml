@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">The Blocker</string>
+    <string name="accessibility_service_label">The Blocker Anti-Tamper Service</string>
+</resources>
