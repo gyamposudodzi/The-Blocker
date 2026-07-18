@@ -72,7 +72,7 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     // DNS over HTTPS
-    implementation("org.xbill:dnsjava:3.5.3")
+    implementation("dnsjava:dnsjava:3.5.3")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
