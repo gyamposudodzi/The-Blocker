@@ -3,11 +3,13 @@ package com.theblocker.app.vpn
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import java.io.IOException
 
 class LocalVpnService : VpnService() {
@@ -67,7 +69,16 @@ class LocalVpnService : VpnService() {
                 .setOngoing(true)
                 .build()
 
-            startForeground(1, notification)
+            ServiceCompat.startForeground(
+                this,
+                1,
+                notification,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                }
+            )
             Log.i(TAG, "VPN Service Started")
 
         } catch (e: Exception) {

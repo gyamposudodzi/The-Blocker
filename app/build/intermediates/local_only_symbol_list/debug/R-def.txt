@@ -1,5 +1,6 @@
 R_DEF: Internal format may change without notice
 local
+string accessibility_service_description
 string accessibility_service_label
 string app_name
 style Theme.TheBlocker

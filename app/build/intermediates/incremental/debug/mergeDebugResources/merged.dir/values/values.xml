@@ -100,6 +100,10 @@
     <item name="visible_removing_fragment_view_tag" type="id"/>
     <item name="wrapped_composition_tag" type="id"/>
     <integer name="status_bar_notification_info_maxnum">999</integer>
+    <string name="accessibility_service_description">
+        Helps prevent uninstalling The Blocker or disabling protection from Settings.
+        Only monitors Settings and the package installer.
+    </string>
     <string name="accessibility_service_label">The Blocker Anti-Tamper Service</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
     <string name="app_name">The Blocker</string>

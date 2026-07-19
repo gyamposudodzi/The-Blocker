@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">The Blocker</string>
     <string name="accessibility_service_label">The Blocker Anti-Tamper Service</string>
+    <string name="accessibility_service_description">
+        Helps prevent uninstalling The Blocker or disabling protection from Settings.
+        Only monitors Settings and the package installer.
+    </string>
 </resources>

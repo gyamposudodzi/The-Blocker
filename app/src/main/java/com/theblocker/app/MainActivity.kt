@@ -1,9 +1,13 @@
 package com.theblocker.app
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
+import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -14,7 +18,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.theblocker.app.accessibility.BlockerAccessibilityService
 import com.theblocker.app.data.SettingsRepository
 import com.theblocker.app.vpn.LocalVpnService
 import dagger.hilt.android.AndroidEntryPoint
@@ -56,7 +64,6 @@ fun BlockerApp(settingsRepository: SettingsRepository) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PinEntryScreen(correctPin: String, onUnlock: () -> Unit) {
     var enteredPin by remember { mutableStateOf("") }
@@ -69,7 +76,7 @@ fun PinEntryScreen(correctPin: String, onUnlock: () -> Unit) {
     ) {
         Text("App Locked", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         OutlinedTextField(
             value = enteredPin,
             onValueChange = { enteredPin = it; isError = false },
@@ -77,7 +84,7 @@ fun PinEntryScreen(correctPin: String, onUnlock: () -> Unit) {
             isError = isError,
             singleLine = true
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(onClick = {
@@ -89,7 +96,7 @@ fun PinEntryScreen(correctPin: String, onUnlock: () -> Unit) {
         }) {
             Text("Unlock")
         }
-        
+
         if (isError) {
             Text("Incorrect PIN", color = MaterialTheme.colorScheme.error)
         }
@@ -99,9 +106,23 @@ fun PinEntryScreen(correctPin: String, onUnlock: () -> Unit) {
 @Composable
 fun DashboardScreen(settingsRepository: SettingsRepository) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var isVpnActive by remember { mutableStateOf(false) }
+    var isAccessibilityEnabled by remember {
+        mutableStateOf(isAccessibilityServiceEnabled(context))
+    }
     var currentPin by remember { mutableStateOf(settingsRepository.getPin() ?: "") }
     var pinSetupInput by remember { mutableStateOf("") }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAccessibilityEnabled = isAccessibilityServiceEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -116,12 +137,26 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(text = "The Blocker Dashboard", style = MaterialTheme.typography.headlineMedium)
-        
-        Spacer(modifier = Modifier.height(32.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = if (isVpnActive) "Protection: On" else "Protection: Off",
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (isVpnActive) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         Button(onClick = {
             val vpnIntent = VpnService.prepare(context)
@@ -149,12 +184,36 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
         }) {
             Text(text = "Disable Protection")
         }
-        
-        Divider(modifier = Modifier.padding(vertical = 32.dp))
-        
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 32.dp))
+
+        Text(text = "Anti-Tamper", style = MaterialTheme.typography.titleLarge)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = if (isAccessibilityEnabled) {
+                "Anti-tamper: Enabled"
+            } else {
+                "Anti-tamper: Disabled — enable in Accessibility settings"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isAccessibilityEnabled) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = {
+            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }) {
+            Text(if (isAccessibilityEnabled) "Open Accessibility Settings" else "Enable Anti-Tamper")
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 32.dp))
+
         Text(text = "Security Settings", style = MaterialTheme.typography.titleLarge)
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         if (currentPin.isEmpty()) {
             OutlinedTextField(
                 value = pinSetupInput,
@@ -162,7 +221,7 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
                 label = { Text("New PIN") },
                 singleLine = true
             )
-            Button(onClick = { 
+            Button(onClick = {
                 if (pinSetupInput.isNotEmpty()) {
                     settingsRepository.setPin(pinSetupInput)
                     currentPin = pinSetupInput
@@ -172,7 +231,7 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
             }
         } else {
             Text("PIN is active.")
-            Button(onClick = { 
+            Button(onClick = {
                 settingsRepository.setPin(null)
                 currentPin = ""
                 pinSetupInput = ""
@@ -181,4 +240,11 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
             }
         }
     }
+}
+
+private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+    val enabled = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+    val expected = "${context.packageName}/${BlockerAccessibilityService::class.java.name}"
+    return enabled.any { it.id.equals(expected, ignoreCase = true) }
 }
