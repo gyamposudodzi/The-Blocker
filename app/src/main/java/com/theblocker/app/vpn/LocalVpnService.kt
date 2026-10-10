@@ -2,29 +2,41 @@ package com.theblocker.app.vpn
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.system.OsConstants
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import java.io.IOException
+import java.net.InetAddress
 
 class LocalVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private val TAG = "LocalVpnService"
+    private var forwarder: DnsVpnForwarder? = null
 
     companion object {
         const val ACTION_START = "com.theblocker.app.START_VPN"
         const val ACTION_STOP = "com.theblocker.app.STOP_VPN"
         const val NOTIFICATION_CHANNEL_ID = "vpn_channel"
-        
+        private const val TAG = "LocalVpnService"
+
+        // Local DNS endpoint advertised to the system; we forward queries upstream.
+        private const val VPN_DNS = "10.0.0.1"
+        private const val VPN_ADDRESS = "10.0.0.2"
+
         // CleanBrowsing Adult Filter IPv4
         const val SAFE_DNS_PRIMARY = "185.228.168.10"
         const val SAFE_DNS_SECONDARY = "185.228.169.11"
+
+        @Volatile
+        var isRunning: Boolean = false
+            private set
     }
 
     override fun onCreate() {
@@ -34,10 +46,12 @@ class LocalVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            setProtectionPreference(false)
             stopVpn()
             return START_NOT_STICKY
         }
 
+        setProtectionPreference(true)
         startVpn()
         return START_STICKY
     }
@@ -47,20 +61,37 @@ class LocalVpnService : VpnService() {
 
         try {
             val builder = Builder()
-            builder.setSession("The Blocker")
-            builder.setMtu(1500)
+                .setSession("The Blocker")
+                .setMtu(1500)
+                .addAddress(VPN_ADDRESS, 32)
+                .addDnsServer(VPN_DNS)
+                // Only DNS traffic enters the TUN; everything else bypasses normally.
+                .addRoute(VPN_DNS, 32)
+                .setBlocking(true)
 
-            builder.addAddress("10.0.0.2", 32)
-            builder.addDnsServer(SAFE_DNS_PRIMARY)
-            builder.addDnsServer(SAFE_DNS_SECONDARY)
-            
-            // To ensure the system sends traffic through the VPN, we must catch DNS queries.
-            // Some systems ignore the VPN if no routes are added.
-            // By NOT adding routes to 0.0.0.0/0, we act as a "split tunnel" that only intercepts DNS IF the system respects addDnsServer.
-            // For a robust implementation, a real Tun2Socks / packet interceptor is needed,
-            // but setting the DNS servers directly is the first step for VpnService.
+            // Prefer IPv4 so apps cannot bypass filtering via IPv6 DNS.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setMetered(false)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.allowFamily(OsConstants.AF_INET)
+            }
 
-            vpnInterface = builder.establish()
+            val established = builder.establish()
+            if (established == null) {
+                Log.e(TAG, "VPN establish() returned null — permission may have been revoked")
+                setProtectionPreference(false)
+                stopSelf()
+                return
+            }
+            vpnInterface = established
+
+            val upstream = listOf(
+                InetAddress.getByName(SAFE_DNS_PRIMARY),
+                InetAddress.getByName(SAFE_DNS_SECONDARY)
+            )
+            forwarder = DnsVpnForwarder(this, established, upstream).also { it.start() }
+            isRunning = true
 
             val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
                 .setContentTitle("The Blocker Active")
@@ -79,24 +110,46 @@ class LocalVpnService : VpnService() {
                     0
                 }
             )
-            Log.i(TAG, "VPN Service Started")
-
+            Log.i(TAG, "VPN Service Started with DNS forwarder")
         } catch (e: Exception) {
             Log.e(TAG, "Error starting VPN", e)
+            setProtectionPreference(false)
             stopVpn()
         }
     }
 
     private fun stopVpn() {
+        forwarder?.stop()
+        forwarder = null
         try {
             vpnInterface?.close()
-            vpnInterface = null
         } catch (e: IOException) {
             Log.e(TAG, "Error closing VPN interface", e)
         }
+        vpnInterface = null
+        isRunning = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         Log.i(TAG, "VPN Service Stopped")
+    }
+
+    override fun onDestroy() {
+        forwarder?.stop()
+        forwarder = null
+        try {
+            vpnInterface?.close()
+        } catch (_: IOException) {
+        }
+        vpnInterface = null
+        isRunning = false
+        super.onDestroy()
+    }
+
+    private fun setProtectionPreference(enabled: Boolean) {
+        getSharedPreferences("blocker_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("protection_enabled", enabled)
+            .apply()
     }
 
     private fun createNotificationChannel() {

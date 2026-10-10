@@ -10,7 +10,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     private val prefs = context.getSharedPreferences("blocker_settings", Context.MODE_PRIVATE)
 
     fun getPin(): String? = prefs.getString("app_pin", null)
-    
+
     fun setPin(pin: String?) {
         if (pin == null) {
             prefs.edit().remove("app_pin").apply()
@@ -18,9 +18,15 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
             prefs.edit().putString("app_pin", pin).apply()
         }
     }
-    
+
+    fun isProtectionEnabled(): Boolean = prefs.getBoolean("protection_enabled", false)
+
+    fun setProtectionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("protection_enabled", enabled).apply()
+    }
+
     fun getPartnerEmail(): String? = prefs.getString("partner_email", null)
-    
+
     fun setPartnerEmail(email: String) {
         prefs.edit().putString("partner_email", email).apply()
     }

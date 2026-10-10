@@ -107,7 +107,7 @@ fun PinEntryScreen(correctPin: String, onUnlock: () -> Unit) {
 fun DashboardScreen(settingsRepository: SettingsRepository) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var isVpnActive by remember { mutableStateOf(false) }
+    var isVpnActive by remember { mutableStateOf(LocalVpnService.isRunning) }
     var isAccessibilityEnabled by remember {
         mutableStateOf(isAccessibilityServiceEnabled(context))
     }
@@ -117,6 +117,7 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                isVpnActive = LocalVpnService.isRunning
                 isAccessibilityEnabled = isAccessibilityServiceEnabled(context)
             }
         }
@@ -128,12 +129,28 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val intent = Intent(context, LocalVpnService::class.java).apply {
-                action = LocalVpnService.ACTION_START
-            }
-            context.startForegroundService(intent)
+            startProtection(context)
             isVpnActive = true
         }
+    }
+
+    fun enableProtection() {
+        val vpnIntent = VpnService.prepare(context)
+        if (vpnIntent != null) {
+            vpnPermissionLauncher.launch(vpnIntent)
+        } else {
+            startProtection(context)
+            isVpnActive = true
+        }
+    }
+
+    fun disableProtection() {
+        val intent = Intent(context, LocalVpnService::class.java).apply {
+            action = LocalVpnService.ACTION_STOP
+        }
+        context.startService(intent)
+        settingsRepository.setProtectionEnabled(false)
+        isVpnActive = false
     }
 
     Column(
@@ -147,7 +164,7 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = if (isVpnActive) "Protection: On" else "Protection: Off",
+            text = if (isVpnActive) "Protection: On (CleanBrowsing DNS)" else "Protection: Off",
             style = MaterialTheme.typography.bodyLarge,
             color = if (isVpnActive) {
                 MaterialTheme.colorScheme.primary
@@ -158,30 +175,13 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Button(onClick = {
-            val vpnIntent = VpnService.prepare(context)
-            if (vpnIntent != null) {
-                vpnPermissionLauncher.launch(vpnIntent)
-            } else {
-                val intent = Intent(context, LocalVpnService::class.java).apply {
-                    action = LocalVpnService.ACTION_START
-                }
-                context.startForegroundService(intent)
-                isVpnActive = true
-            }
-        }) {
+        Button(onClick = { enableProtection() }) {
             Text(text = "Enable Protection")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(onClick = {
-            val intent = Intent(context, LocalVpnService::class.java).apply {
-                action = LocalVpnService.ACTION_STOP
-            }
-            context.startService(intent)
-            isVpnActive = false
-        }) {
+        Button(onClick = { disableProtection() }) {
             Text(text = "Disable Protection")
         }
 
@@ -240,6 +240,13 @@ fun DashboardScreen(settingsRepository: SettingsRepository) {
             }
         }
     }
+}
+
+private fun startProtection(context: Context) {
+    val intent = Intent(context, LocalVpnService::class.java).apply {
+        action = LocalVpnService.ACTION_START
+    }
+    context.startForegroundService(intent)
 }
 
 private fun isAccessibilityServiceEnabled(context: Context): Boolean {
